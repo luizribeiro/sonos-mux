@@ -5,3 +5,4 @@ edition = "2021"
 
 [dependencies]
 mux-core = { path = "../mux-core" }
+clap = { version = "4", features = ["derive"] }

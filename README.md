@@ -1,7 +1,7 @@
 <h1 align="center">sonos‑mux</h1>
 <p align="center"><em>Zero‑gap audio multiplexer for Roon → Sonos households</em></p>
 
-[![build](https://github.com/yourorg/sonos-mux/actions/workflows/ci.yml/badge.svg)](…)
+[![build](https://github.com/yourorg/sonos-mux/actions/workflows/ci.yml/badge.svg)](https://github.com/yourorg/sonos-mux/actions)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 > **Note:** This README describes the <strong>vision</strong> for v1.0. Implementation is in‑flight – see <code>PROJECT.md</code> and sprint files for status.

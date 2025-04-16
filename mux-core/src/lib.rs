@@ -1,24 +1,21 @@
-// Basic scaffold for the mux-core library
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
+// sonos-mux core library
+pub mod config;
 
-#[derive(Debug, Error)]
+// Re-export main types for convenience
+pub use config::{Config, ConfigError, Input, Logging, Output, Route};
+
+#[derive(Debug, thiserror::Error)]
 pub enum MuxError {
     #[error("Configuration error: {0}")]
-    Config(String),
+    Config(#[from] config::ConfigError),
+
+    #[error("Internal error: {0}")]
+    Internal(String),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Config {
-    pub version: String,
-}
-
-impl Config {
-    pub fn new(version: &str) -> Self {
-        Self {
-            version: version.to_string(),
-        }
-    }
+/// Get the current version of the library
+pub fn version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
 }
 
 #[cfg(test)]
@@ -26,8 +23,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_config_new() {
-        let config = Config::new("0.0.1");
-        assert_eq!(config.version, "0.0.1");
+    fn test_version() {
+        assert!(!version().is_empty());
     }
 }
