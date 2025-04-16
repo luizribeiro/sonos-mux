@@ -1,5 +1,5 @@
 <h1 align="center">sonos‑mux</h1>
-<p align="center"><em>Zero‑gap audio multiplexer for Roon → Sonos households</em></p>
+<p align="center"><em>Zero‑gap audio multiplexer for Roon → Sonos households</em></p>
 
 [![build](https://github.com/yourorg/sonos-mux/actions/workflows/ci.yml/badge.svg)](https://github.com/yourorg/sonos-mux/actions)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
@@ -14,9 +14,9 @@
 * Hot‑reloads `config.toml` without audible drop
 * Auto‑discovers Sonos players and Roon outputs (`sonos‑mux scan`)
 * Prometheus metrics & health endpoint
-* Static binaries for x86‑64 / arm64 (Pi 4)
+* Static binaries for x86‑64 / arm64 (Pi 4)
 
-## 🚀 Quick Start
+## 🚀 Quick Start
 ```bash
 # 1. prerequisites
 sudo apt install alsa-utils lame
@@ -25,10 +25,29 @@ sudo modprobe snd-aloop pcm_substreams=2   # once per boot
 # 2. build & run
 git clone https://github.com/yourorg/sonos-mux.git
 cd sonos-mux
-cargo run --bin muxd -- --config examples/config.toml
+sudo ./scripts/run_dev.sh
 ```
 Add `http://<mux-host>:8000/stream.mp3` as a custom radio station in the Sonos app  
 → music should play; change tracks in Roon, zero gaps 😊
+
+## 🎮 Quick Demo
+1. In one terminal, run the development script:
+   ```bash
+   sudo ./scripts/run_dev.sh
+   ```
+
+2. In another terminal, play audio through the ALSA loopback device:
+   ```bash
+   # Install sox if not already installed
+   sudo apt install sox
+
+   # Generate a test tone and play it through the loopback device
+   play -n synth 60 sine 440 gain -6 remix 1 2 silence 1 5 1% @0:10 1 5 1%
+   ```
+
+3. Open `http://localhost:8000/stream.mp3` in your browser or media player to hear the audio.
+
+4. Add this URL as a custom radio station in your Sonos app to stream to your Sonos speakers.
 
 ## 🛠️ Configuration
 ```toml
@@ -78,15 +97,15 @@ kill -HUP $(pidof muxd)                  # via signal
 | **Nix** | `nix run github:yourorg/sonos-mux` |
 
 ## 🔌 Control API (v1.0)
-* WebSocket `ws://localhost:8000/ws`
+* WebSocket `ws://localhost:8000/ws`
   ```json
   {"set_volume":{"room":"Kitchen","db":-5}}
   ```
-* Metrics `http://localhost:8000/metrics`
-* Health `http://localhost:8000/healthz`
+* Metrics `http://localhost:8000/metrics`
+* Health `http://localhost:8000/healthz`
 
 ## 🤝 Contributing
 Please read [`CONTRIBUTING.md`](CONTRIBUTING.md). Good first issues are tagged **help‑wanted**.
 
 ## 📄 License
-Apache‑2.0 © 2025 Your Org
+Apache‑2.0 © 2025 Your Org
