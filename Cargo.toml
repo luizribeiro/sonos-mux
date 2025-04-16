@@ -1,0 +1,2 @@
+[workspace]
+members = ["mux-core", "muxd", "cli"]

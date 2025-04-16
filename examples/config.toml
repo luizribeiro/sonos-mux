@@ -1,0 +1,13 @@
+[[inputs]]
+id = "roon_main"
+kind = "alsa"
+device = "hw:Loopback,1"
+
+[[outputs]]
+id = "living_room"
+kind = "sonos"
+room = "Living Room"
+
+[[routes]]
+input="roon_main"
+outputs=["living_room"]
