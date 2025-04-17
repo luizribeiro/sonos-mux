@@ -3,6 +3,7 @@ pub mod config;
 pub mod encoder;
 pub mod input;
 pub mod mixer;
+pub mod output;
 pub mod routing;
 pub mod stream;
 
@@ -14,6 +15,8 @@ pub use config::{Config, ConfigError, Input, Logging, Output, Route};
 pub use encoder::{EncoderError, Lame};
 pub use input::{AudioBuffer, AudioInput, InputError};
 pub use mixer::{db_to_lin, lin_to_db, Mixer, Source};
+pub use output::sonos::{SonosManager, SonosOutput};
+pub use output::{AudioOutput, OutputError};
 pub use routing::Router;
 pub use stream::{HttpStreamer, StreamError};
 
@@ -30,6 +33,9 @@ pub enum MuxError {
 
     #[error("Stream error: {0}")]
     Stream(#[from] stream::StreamError),
+
+    #[error("Output error: {0}")]
+    Output(#[from] output::OutputError),
 
     #[error("Internal error: {0}")]
     Internal(String),

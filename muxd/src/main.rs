@@ -1,7 +1,8 @@
 use clap::Parser;
 use crossbeam_channel::bounded;
-use log::{error, info};
-use mux_core::{AudioBuffer, Config, HttpStreamer, Lame, MuxError};
+use log::{error, info, warn};
+use mux_core::{AudioBuffer, Config, HttpStreamer, Lame, MuxError, SonosManager};
+use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -10,6 +11,8 @@ use std::sync::{
 use std::thread;
 use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
+use tokio::sync::oneshot;
+use warp::Filter;
 
 #[derive(Parser)]
 #[command(author, version, about = "Sonos audio multiplexer daemon")]
@@ -43,6 +46,22 @@ fn calculate_loudness(buffer: &[i16]) -> f32 {
     }
 }
 
+#[derive(Debug, Serialize, Clone)]
+struct HealthResponse {
+    status: String,
+    version: String,
+    uptime_sec: u64,
+    outputs: Vec<OutputHealth>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+struct OutputHealth {
+    id: String,
+    kind: String,
+    room: Option<String>,
+    healthy: bool,
+}
+
 fn main() -> Result<(), MuxError> {
     // Initialize logging
     env_logger::init();
@@ -64,12 +83,6 @@ fn main() -> Result<(), MuxError> {
     info!("Outputs: {}", config.outputs.len());
     info!("Routes: {}", config.routes.len());
 
-    // For Sprint 2, we'll implement a simple pipeline:
-    // 1. Create an ALSA input from the first input in the config
-    // 2. Create an MP3 encoder
-    // 3. Create an HTTP streamer
-    // 4. Wire them together
-
     // Check if we have at least one input and one output
     if config.inputs.is_empty() {
         return Err(MuxError::Internal(
@@ -83,15 +96,61 @@ fn main() -> Result<(), MuxError> {
         ));
     }
 
-    // For Sprint 2, we'll just use the first input and output
-    let input_config = &config.inputs[0];
-    let output_config = &config.outputs[0];
+    // Create the Sonos manager
+    let mut sonos_manager = SonosManager::new();
 
-    info!("Using input: {} ({})", input_config.id, input_config.kind);
-    info!(
-        "Using output: {} ({})",
-        output_config.id, output_config.kind
+    // Add all Sonos outputs to the manager
+    for output_config in &config.outputs {
+        if output_config.kind == "sonos" {
+            if let Some(room) = &output_config.room {
+                info!("Adding Sonos room: {}", room);
+                sonos_manager.add_room(room.clone(), output_config.buffer_sec);
+            } else {
+                warn!(
+                    "Sonos output '{}' has no room name, skipping",
+                    output_config.id
+                );
+            }
+        }
+    }
+
+    // Wrap the manager in Arc<Mutex> for sharing
+    let sonos_manager = Arc::new(tokio::sync::Mutex::new(sonos_manager));
+
+    // Create tokio runtime
+    let rt = Arc::new(
+        Runtime::new()
+            .map_err(|e| MuxError::Internal(format!("Failed to create runtime: {}", e)))?,
     );
+
+    // Create clones for different threads
+    let rt_health = rt.clone();
+    let rt_processor = rt.clone();
+
+    // Initialize Sonos outputs
+    let sonos_manager_clone = sonos_manager.clone();
+    rt_health.block_on(async {
+        let manager = sonos_manager_clone.lock().await;
+        if let Err(e) = manager.initialize_all().await {
+            warn!("Some Sonos devices failed to initialize: {}", e);
+        }
+    });
+
+    // Start the keep-alive task
+    let keep_alive_tx = rt_health.block_on(async {
+        let manager = sonos_manager.lock().await;
+        manager.start_keep_alive_task()
+    });
+
+    // For Sprint 2+4, we'll implement a pipeline:
+    // 1. Create an audio input from the first input in the config
+    // 2. Create an MP3 encoder
+    // 3. Create an HTTP streamer
+    // 4. Set up Sonos to play the stream
+
+    // For now, use the first input
+    let input_config = &config.inputs[0];
+    info!("Using input: {} ({})", input_config.id, input_config.kind);
 
     // Create the audio input
     let mut audio_input = mux_core::input::create_input(input_config)?;
@@ -100,19 +159,43 @@ fn main() -> Result<(), MuxError> {
     let mut encoder = Lame::new(128)?; // 128 kbps
 
     // Create the HTTP streamer
-    let port = output_config.port.unwrap_or(8000);
-    let streamer = HttpStreamer::new(port);
+    let http_port = 8000; // Default port
+    let streamer = HttpStreamer::new(http_port);
 
-    // Create tokio runtime for the HTTP streamer
-    let rt = Runtime::new()
-        .map_err(|e| MuxError::Internal(format!("Failed to create runtime: {}", e)))?;
-    rt.block_on(async {
+    // Start the HTTP streamer
+    rt_health.block_on(async {
         streamer.start().await.map_err(MuxError::Stream)?;
         Ok::<_, MuxError>(())
     })?;
 
-    info!("HTTP streamer started on port {}", port);
-    info!("Stream available at http://localhost:{}/stream.mp3", port);
+    info!("HTTP streamer started on port {}", http_port);
+    info!(
+        "Stream available at http://localhost:{}/stream.mp3",
+        http_port
+    );
+
+    // Get the stream URL for Sonos
+    let hostname = hostname::get()
+        .map(|h| h.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "localhost".to_string());
+
+    let stream_url = format!("http://{}:{}/stream.mp3", hostname, http_port);
+    info!("Full stream URL: {}", stream_url);
+
+    // Set the stream URL on all Sonos outputs
+    rt_health.block_on(async {
+        let manager = sonos_manager.lock().await;
+        for output_config in &config.outputs {
+            if output_config.kind == "sonos" {
+                if let Some(room) = &output_config.room {
+                    info!("Setting stream for room '{}' to {}", room, stream_url);
+                    if let Err(e) = manager.set_stream(room, &stream_url).await {
+                        warn!("Failed to set stream for room '{}': {}", room, e);
+                    }
+                }
+            }
+        }
+    });
 
     // Create channels for the pipeline
     let (audio_sender, audio_receiver) = bounded::<AudioBuffer>(10);
@@ -123,6 +206,84 @@ fn main() -> Result<(), MuxError> {
 
     // Start the audio input
     audio_input.start(audio_sender)?;
+
+    // Start time for uptime tracking
+    let start_time = Instant::now();
+
+    // Create a snapshot of outputs for health check
+    let config_outputs = config.outputs.clone();
+
+    // Set up health check endpoint
+    let sonos_manager_health = sonos_manager.clone();
+
+    let health_check = warp::path("healthz").and_then(move || {
+        let uptime_sec = start_time.elapsed().as_secs();
+        let manager_clone = sonos_manager_health.clone();
+        let outputs_clone = config_outputs.clone();
+
+        async move {
+            let manager = manager_clone.lock().await;
+            let sonos_status = manager.health_status().await;
+
+            let mut outputs = Vec::new();
+            for output_config in &outputs_clone {
+                let healthy = match output_config.kind.as_str() {
+                    "sonos" => {
+                        if let Some(room) = &output_config.room {
+                            sonos_status.iter().any(|s| &s.room == room && s.healthy)
+                        } else {
+                            false
+                        }
+                    }
+                    _ => true, // Other output types (like HTTP) are assumed healthy
+                };
+
+                outputs.push(OutputHealth {
+                    id: output_config.id.clone(),
+                    kind: output_config.kind.clone(),
+                    room: output_config.room.clone(),
+                    healthy,
+                });
+            }
+
+            let all_healthy = outputs.iter().all(|o| o.healthy);
+
+            let response = HealthResponse {
+                status: if all_healthy {
+                    "ok".to_string()
+                } else {
+                    "degraded".to_string()
+                },
+                version: mux_core::version().to_string(),
+                uptime_sec,
+                outputs,
+            };
+
+            Ok::<_, warp::Rejection>(warp::reply::json(&response))
+        }
+    });
+
+    // Start the health check server
+    let (health_tx, health_rx) = oneshot::channel();
+    // Use Arc to share the sender between threads
+    let health_tx = Arc::new(tokio::sync::Mutex::new(Some(health_tx)));
+
+    let health_server = async move {
+        let routes = health_check.with(warp::cors().allow_any_origin());
+        let (addr, server) =
+            warp::serve(routes).bind_with_graceful_shutdown(([0, 0, 0, 0], 8080), async move {
+                health_rx.await.ok();
+            });
+
+        info!(
+            "Health check endpoint available at http://{}:{}/healthz",
+            hostname,
+            addr.port()
+        );
+        server.await;
+    };
+
+    rt_health.spawn(health_server);
 
     // Create a thread to process audio and send to the streamer
     let processor_thread = thread::spawn(move || {
@@ -185,15 +346,30 @@ fn main() -> Result<(), MuxError> {
         }
 
         // Stop the streamer
-        rt.block_on(async {
+        rt_processor.block_on(async {
             let _ = streamer.stop().await;
         });
     });
+
+    // Clone for the Ctrl+C handler
+    let health_tx_clone = health_tx.clone();
 
     // Wait for Ctrl+C
     ctrlc::set_handler(move || {
         info!("Received Ctrl+C, shutting down...");
         running.store(false, Ordering::SeqCst);
+
+        // Stop the keep-alive task
+        drop(keep_alive_tx.send(()));
+
+        // Stop the health server - take the sender out of the Option
+        let _ = rt_health.block_on(async {
+            if let Some(tx) = health_tx_clone.lock().await.take() {
+                tx.send(())
+            } else {
+                Ok(())
+            }
+        });
     })
     .map_err(|e| MuxError::Internal(format!("Failed to set Ctrl+C handler: {}", e)))?;
 

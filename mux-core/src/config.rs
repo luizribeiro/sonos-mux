@@ -74,6 +74,10 @@ pub struct Output {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub room: Option<String>,
 
+    // Buffer size in seconds (primarily for Sonos)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub buffer_sec: Option<u32>,
+
     // HTTP specific
     #[serde(skip_serializing_if = "Option::is_none")]
     pub host: Option<String>,
@@ -192,6 +196,7 @@ device = "hw:Loopback,1"
 id = "living_room"
 kind = "sonos"
 room = "Living Room"
+buffer_sec = 5
 
 [[routes]]
 input = "roon_main"
@@ -210,6 +215,7 @@ outputs = ["living_room"]
         assert_eq!(config.outputs[0].id, "living_room");
         assert_eq!(config.outputs[0].kind, "sonos");
         assert_eq!(config.outputs[0].room, Some("Living Room".to_string()));
+        assert_eq!(config.outputs[0].buffer_sec, Some(5));
 
         assert_eq!(config.routes.len(), 1);
         assert_eq!(config.routes[0].input, "roon_main");
