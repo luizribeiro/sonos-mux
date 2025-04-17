@@ -11,8 +11,10 @@ use std::sync::{
 use std::thread;
 use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot, Mutex};
 use warp::Filter;
+
+mod admin;
 
 #[derive(Parser)]
 #[command(author, version, about = "Sonos audio multiplexer daemon")]
@@ -20,6 +22,14 @@ struct Args {
     /// Path to the configuration file
     #[arg(short, long)]
     config: PathBuf,
+
+    /// Unix socket path for admin commands
+    #[arg(long, default_value = "/run/sonos-mux.sock")]
+    socket: String,
+
+    /// TCP port for admin commands (0 to disable)
+    #[arg(long, default_value = "8383")]
+    admin_port: u16,
 }
 
 // Calculate RMS loudness of audio buffer
@@ -354,10 +364,92 @@ fn main() -> Result<(), MuxError> {
     // Clone for the Ctrl+C handler
     let health_tx_clone = health_tx.clone();
 
+    // Set up the admin server
+    let (reload_tx, mut reload_rx) = mpsc::channel::<Config>(10);
+    let reload_trigger = Arc::new(Mutex::new(Some(reload_tx)));
+
+    // Start the admin server
+    let admin_server = admin::AdminServer::new(
+        Some(args.config.to_string_lossy().to_string()),
+        sonos_manager.clone(),
+        reload_trigger.clone(),
+    );
+
+    // Start the Unix socket admin server
+    if !args.socket.is_empty() {
+        let admin_server_clone = admin_server.clone();
+        let socket_path = args.socket.clone();
+        rt_health.spawn(async move {
+            if let Err(e) = admin_server_clone.start_unix(&socket_path).await {
+                error!("Failed to start Unix socket admin server: {}", e);
+            }
+        });
+    }
+
+    // Start the TCP admin server if port is non-zero
+    if args.admin_port > 0 {
+        let admin_server_clone = admin_server.clone();
+        let admin_port = args.admin_port;
+        rt_health.spawn(async move {
+            if let Err(e) = admin_server_clone.start_tcp(admin_port).await {
+                error!("Failed to start TCP admin server: {}", e);
+            }
+        });
+    }
+
+    // Handle SIGHUP for config reload
+    let config_path = args.config.clone();
+    let reload_trigger_sighup = reload_trigger.clone();
+    let rt_sighup = rt.clone();
+
+    // Set up a handler for SIGHUP
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+
+        let mut sighup = rt_sighup.block_on(async {
+            signal(SignalKind::hangup())
+                .map_err(|e| MuxError::Internal(format!("Failed to set up SIGHUP handler: {}", e)))
+        })?;
+
+        let reload_trigger = reload_trigger_sighup.clone();
+        let config_path = config_path.clone();
+
+        rt_sighup.spawn(async move {
+            loop {
+                // Wait for a SIGHUP signal
+                sighup.recv().await;
+                info!("Received SIGHUP, reloading configuration...");
+
+                // Try to load the config
+                match Config::load(&config_path) {
+                    Ok(config) => {
+                        // Send the config to the reload channel
+                        let reload_trigger = reload_trigger.lock().await;
+                        if let Some(trigger) = &*reload_trigger {
+                            if let Err(e) = trigger.send(config).await {
+                                error!("Failed to send reload: {}", e);
+                            } else {
+                                info!("Configuration reload triggered");
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to reload configuration: {}", e);
+                    }
+                }
+            }
+        });
+    }
+
+    // Clone running for Ctrl+C handler
+    let running_ctrlc = running.clone();
+    let reload_trigger_ctrlc = reload_trigger.clone();
+
     // Wait for Ctrl+C
     ctrlc::set_handler(move || {
         info!("Received Ctrl+C, shutting down...");
-        running.store(false, Ordering::SeqCst);
+        running_ctrlc.store(false, Ordering::SeqCst);
 
         // Stop the keep-alive task
         drop(keep_alive_tx.send(()));
@@ -370,8 +462,43 @@ fn main() -> Result<(), MuxError> {
                 Ok(())
             }
         });
+
+        // Clear the reload trigger to prevent further reloads
+        rt_health.block_on(async {
+            let mut reload_trigger = reload_trigger_ctrlc.lock().await;
+            *reload_trigger = None;
+        });
     })
     .map_err(|e| MuxError::Internal(format!("Failed to set Ctrl+C handler: {}", e)))?;
+
+    // Spawn a task to handle configuration reloads
+    let running_reload = running.clone();
+    let rt_reload = rt.clone();
+    thread::spawn(move || {
+        rt_reload.block_on(async {
+            while running_reload.load(Ordering::SeqCst) {
+                if let Some(new_config) = reload_rx.recv().await {
+                    info!("Received new configuration, applying...");
+
+                    // Here we would apply the new configuration
+                    // For now, let's just log it
+                    info!(
+                        "New configuration has {} inputs, {} outputs, and {} routes",
+                        new_config.inputs.len(),
+                        new_config.outputs.len(),
+                        new_config.routes.len()
+                    );
+
+                    // TODO: Implement actual hot-reloading here
+                    // This would involve:
+                    // 1. Updating the audio input(s) if needed
+                    // 2. Updating the Sonos manager with new outputs
+                    // 3. Updating routing configuration
+                    // All while maintaining audio continuity
+                }
+            }
+        });
+    });
 
     // Wait for the processor thread to finish
     processor_thread

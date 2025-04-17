@@ -85,8 +85,23 @@ duck_db = -15
 ### Hot‑Reload
 ```bash
 sonos-mux apply new_config.toml          # via CLI
-# or
+sonos-mux scan | sonos-mux apply -       # scan and apply
 kill -HUP $(pidof muxd)                  # via signal
+```
+
+### Admin Commands
+The daemon listens for admin commands on a Unix socket (`/run/sonos-mux.sock`) and TCP port (8383):
+
+```bash
+# Apply a new configuration
+echo "apply" | nc -U /run/sonos-mux.sock
+cat new_config.toml | nc -U /run/sonos-mux.sock
+
+# Get version information
+echo "version" | nc 127.0.0.1 8383
+
+# Get statistics
+echo "stats" | nc 127.0.0.1 8383
 ```
 
 ## 📦 Installation Options

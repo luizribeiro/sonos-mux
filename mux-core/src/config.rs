@@ -114,6 +114,15 @@ fn default_log_level() -> String {
 impl Config {
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, ConfigError> {
         let content = fs::read_to_string(path)?;
+        Self::from_reader(content.as_bytes())
+    }
+
+    pub fn from_reader<R: std::io::Read>(mut reader: R) -> Result<Self, ConfigError> {
+        let mut content = String::new();
+        reader
+            .read_to_string(&mut content)
+            .map_err(ConfigError::Io)?;
+
         let config: Config =
             toml::from_str(&content).map_err(|e| ConfigError::Toml(e.to_string()))?;
 
