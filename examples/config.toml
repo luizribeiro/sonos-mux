@@ -1,13 +1,75 @@
+# Multi-input configuration with ducking example
+
+# Primary music input
 [[inputs]]
 id = "roon_main"
 kind = "alsa"
 device = "hw:Loopback,1"
 
+# Alert sound input (with priority)
+[[inputs]]
+id = "alert"
+kind = "file"
+path = "alert.mp3"
+loop_playback = false
+
+# Background ambient sound
+[[inputs]]
+id = "ambient"
+kind = "file"
+path = "ambient.mp3"
+loop_playback = true
+
+# HTTP stream input
+[[inputs]]
+id = "radio"
+kind = "http"
+url = "http://example.com/stream.mp3"
+
+# Fallback silence generator
+[[inputs]]
+id = "silence"
+kind = "silence"
+
+# Living room speaker
 [[outputs]]
 id = "living_room"
 kind = "sonos"
 room = "Living Room"
 
+# Kitchen speaker
+[[outputs]]
+id = "kitchen"
+kind = "sonos"
+room = "Kitchen"
+
+# Routes for main music - routed to both rooms
 [[routes]]
-input="roon_main"
-outputs=["living_room"]
+input = "roon_main"
+outputs = ["living_room", "kitchen"]
+gain_db = 0.0  # Default gain (0dB)
+
+# Routes for alert sounds - priority source with ducking
+[[routes]]
+input = "alert"
+outputs = ["living_room", "kitchen"]
+gain_db = 0.0
+duck_db = 12.0  # Will duck other sources by 12dB
+
+# Ambient sound - only in the living room, at lower volume
+[[routes]]
+input = "ambient"
+outputs = ["living_room"]
+gain_db = -12.0  # 12dB lower than main music
+
+# Radio - only in the kitchen
+[[routes]]
+input = "radio"
+outputs = ["kitchen"]
+gain_db = -3.0  # 3dB lower than main music
+
+# Silence fallback - in all rooms
+[[routes]]
+input = "silence"
+outputs = ["living_room", "kitchen"]
+gain_db = -60.0  # Very low level

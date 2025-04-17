@@ -2,12 +2,19 @@
 pub mod config;
 pub mod encoder;
 pub mod input;
+pub mod mixer;
+pub mod routing;
 pub mod stream;
+
+#[cfg(test)]
+mod tests;
 
 // Re-export main types for convenience
 pub use config::{Config, ConfigError, Input, Logging, Output, Route};
 pub use encoder::{EncoderError, Lame};
-pub use input::{AudioBuffer, AudioInput, Frame, InputError};
+pub use input::{AudioBuffer, AudioInput, InputError};
+pub use mixer::{db_to_lin, lin_to_db, Mixer, Source};
+pub use routing::Router;
 pub use stream::{HttpStreamer, StreamError};
 
 #[derive(Debug, thiserror::Error)]
@@ -34,7 +41,7 @@ pub fn version() -> &'static str {
 }
 
 #[cfg(test)]
-mod tests {
+mod lib_tests {
     use super::*;
 
     #[test]

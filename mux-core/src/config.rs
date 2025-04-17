@@ -52,9 +52,13 @@ pub struct Input {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub device: Option<String>,
 
-    // FIFO specific
+    // File specific
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+
+    // Loop option for file input
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loop_playback: Option<bool>,
 
     // HTTP specific
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -118,7 +122,7 @@ impl Config {
         // Check for valid input kinds
         for input in &self.inputs {
             match input.kind.as_str() {
-                "alsa" | "fifo" | "http" | "silence" => {}
+                "alsa" | "file" | "http" | "silence" => {}
                 _ => return Err(ConfigError::UnknownInputKind(input.kind.clone())),
             }
         }

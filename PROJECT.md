@@ -1,6 +1,6 @@
 # Sonos‑Mux Project Charter
 
-> **Status:** Work‑in‑Progress (Sprint 1 completed, see `SPRINT-02.md` → `SPRINT‑06.md` for active tasks)
+> **Status:** Work‑in‑Progress (Sprints 1-3 completed, see `SPRINT-04.md` → `SPRINT‑06.md` for active tasks)
 
 ## 1  Problem Statement
 Roon‑managed households with multiple Sonos zones suffer audible gaps when switching tracks or when Home Assistant tries to inject TTS/alert media. Gaps come from repeating the Sonos HTTP handshake and RAAT endpoint discovery. We need a **resident multiplexer** that:
@@ -97,8 +97,8 @@ _Minimum Rust 2021, MSRV 1.70._
 | Sprint | Theme | Key Deliverable |
 |--------|-------|-----------------|
 | 01 ✅ | Scaffold & config | Repo + CI + validator |
-| 02 | E2E audio prototype | hear music through Sonos |
-| 03 | Mixer + routing | multi‑source with ducking |
+| 02 ✅ | E2E audio prototype | hear music through Sonos |
+| 03 ✅ | Mixer + routing | multi‑source with ducking |
 | 04 | Sonos resilience | auto‑set URI & regroup |
 | 05 | CLI scan/apply | hot‑reload, admin socket |
 | 06 | API, metrics, release | v1.0, systemd, Docker |

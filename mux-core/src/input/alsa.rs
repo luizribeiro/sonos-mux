@@ -17,6 +17,17 @@ pub struct AlsaInput {
     thread_handle: Option<thread::JoinHandle<()>>,
 }
 
+impl Clone for AlsaInput {
+    fn clone(&self) -> Self {
+        // We don't clone the thread handle, just create a new instance
+        Self {
+            device_name: self.device_name.clone(),
+            running: Arc::new(Mutex::new(false)),
+            thread_handle: None,
+        }
+    }
+}
+
 impl AlsaInput {
     pub fn new(device_name: &str) -> Result<Self, InputError> {
         Ok(AlsaInput {
